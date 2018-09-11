@@ -1,0 +1,3 @@
+
+void printusage();
+void printhelp();

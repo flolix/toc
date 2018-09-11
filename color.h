@@ -1,0 +1,5 @@
+
+enum {NOCOLOR, BLACK, RED, GREEN, BROWN, BLUE, PURPLE, CYAN, L_GRAY, D_GRAY, L_RED, L_GREEN, YELLOW};
+
+
+void setcolor(int col);
