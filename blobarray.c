@@ -19,6 +19,18 @@ void appendBlob(struct blob_t ** first, void * content ) {
     } else getLastBlobblob(*first)->next = newblob;
 }
 
+void * getBlobblob(struct blob_t * first, int i) {
+    struct blob_t * iterator = first;
+    first->current = 0;
+    while (iterator != NULL) {
+        if (i == first->current) return iterator; 
+        first->current++;
+        iterator = iterator->next;
+    }
+    //not found..
+    return NULL;
+}
+
 void * getBlob(struct blob_t * first, int i) {
     struct blob_t * iterator = first;
     first->current = 0;
@@ -55,6 +67,19 @@ void  * getNextBlob(struct blob_t * first) {
     } else return NULL;
 } 
 
+void  * getPrevBlob(struct blob_t * first) {
+    if (first != NULL) {
+        first->current--;
+        return getBlob(first, first->current);
+    } else return NULL;
+} 
+
+
+void replaceCurrentBlob(struct blob_t * first, void * r) {
+    struct blob_t * b = getBlobblob(first, first->current);
+    if (b != NULL) b->content = r;
+}
+ 
 void removeBlobArray(struct blob_t * first) {
     struct blob_t * iterator = first;
     struct blob_t * blob;

@@ -9,8 +9,11 @@ struct blob_t {
 void * getFirstBlob(struct blob_t * first);
 void * getLastBlob(struct blob_t * first);
 void  * getNextBlob(struct blob_t * first);
+void  * getPrevBlob(struct blob_t * first);
 void prepBlobIteration(struct blob_t * first);
 
 void appendBlob(struct blob_t ** first, void * content );
 void * getBlob(struct blob_t * first, int i);
 void removeBlobArray(struct blob_t * first);
+
+void replaceCurrentBlob(struct blob_t * first, void * r);
