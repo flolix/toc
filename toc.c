@@ -16,21 +16,18 @@
 #include "color.h"
 #include "blobarray.h"
 #include "udp.h"
-
+#include "debug.h"
 
 
 int RECEIVE_COLOR = GREEN;
 int SEND_COLOR = NOCOLOR;
+int DEBUG_COLOR = CYAN;
 
 
 char IP[20] = "<no ip>";
 int PORT = 0;
 
-
-int DEBUG = 0;
 int OUT = 0b001;
-
-    
 
 void sendOSCfromstr(char * s) {
     char * endptr;
@@ -41,11 +38,18 @@ void sendOSCfromstr(char * s) {
     s = endptr+1; 
     PORT = strtol(s, &endptr, 10);
     s = endptr+1;
-    setcolor(SEND_COLOR);
-    printf("<-- %s\n",s);
-    setcolor(NOCOLOR);
     struct OSCMsg_t * oscmsg;
     oscmsg = OSCcreateMessagefromstr(s);
+    if (!OSCcheckaddress(oscmsg->addr)) {
+        printf("Something wrong with your OSC message:");
+        OSCPrintMsg(oscmsg);
+        puts("Probably the address");
+        exit(1);
+    }
+    setcolor(SEND_COLOR);
+    printf("<-- ");
+    OSCPrintMsg(oscmsg);
+    setcolor(NOCOLOR);
     //OUT:
     // Bit 3: print to stdout, Bit 2: print in hex to stdout, Bit 1: send via udp
 
@@ -81,14 +85,9 @@ enum {NO_COM, PAUSE_COM, OSC_COM, LOOP_COM, ECHO_COM, OUT_COM, SCRIPT_COM, LISTE
 struct tokenlist_t {
     int com;
     char str[10];
-} tokenlist[15] = {{NO_COM, ""}, {PAUSE_COM, "-p"}, {OSC_COM, "-o"}, {LOOP_COM, "-l"}, {ECHO_COM, "-e"}, {OUT_COM,"-out"},{SCRIPT_COM, "-script"},{LISTEN_COM, "listen"},{99}};
+    int argc;
+} tokenlist[15] = {{NO_COM, "",0}, {PAUSE_COM, "-p", 1}, {OSC_COM, "-o", 99}, {LOOP_COM, "-l",0}, {ECHO_COM, "-e",99}, {OUT_COM,"-out",1},{SCRIPT_COM, "script",0},{LISTEN_COM, "listen",2},{99}};
 
-
-char * gettokenname(int tcom) {
-    int i = 0;
-    while (tokenlist[i].com != 99 && tokenlist[i].com != tcom) i++;
-    if (tokenlist[i].com == 99) return ""; else return tokenlist[i].str;
-}
 
 struct token_t getnexttoken(struct token_t tok, char * begin) {
     struct token_t t;
@@ -135,7 +134,7 @@ struct token_t getnexttoken(struct token_t tok, char * begin) {
   
 void printconfigfile(char * name) {
     FILE * datei;
-    char line[100];
+    char line[300];
     datei = fopen(name, "r");  
     if (datei == NULL) {
         perror("open config file failed");
@@ -144,7 +143,7 @@ void printconfigfile(char * name) {
     int i = 1;
     printf("Config file is %s\n", name);
     //puts  ("");
-    while( fgets(line,99,datei)) {
+    while( fgets(line,299,datei)) {
         //remove trailing newline if any..
         if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = '\0';
         if ((line[0] == '/' && line[1] == '/') ||
@@ -163,14 +162,15 @@ struct alias_t {
 
 struct blob_t * AliasArray = NULL;
 
-void defineAlias(char * search, char * replace) {
-    if (DEBUG) printf("New alias definition: search for %s -> replace by %s\n", search, replace);
+struct alias_t *  defineAlias(char * search, char * replace) {
+    debprintf("New alias definition: search for %s -> replace by %s\n", search, replace);
     struct alias_t * newalias = malloc(sizeof(struct alias_t));
     newalias->s = malloc(strlen(search)+1);
     strcpy(newalias->s, search);
     newalias->r = malloc(strlen(replace)+1);
     strcpy(newalias->r, replace);
     appendBlob(&AliasArray, newalias);
+    return newalias;
 }
 
 void applyAlias(struct alias_t * a, char * result, char * work) {
@@ -178,7 +178,7 @@ void applyAlias(struct alias_t * a, char * result, char * work) {
     char * s;
     char * resptr = result;
     while ((s = strstr(work, a->s)) != NULL) {
-        if (DEBUG) printf("ALIAS %s found!\n", a->s);
+        debprintf("Found %s in %s!\n", a->s, work);
         //printf("applyAlias: Firstpart is: %i\n", s-work);
         strncpy(resptr, work, s - work);
         strcpy(resptr+(s-work), a->r);
@@ -206,32 +206,26 @@ void  applyAliase (char * result, char * line) {
     //printf("applyAliase: result is %s\n", result);
 }
 
-void applyAliasAtStart(struct alias_t * a, char * result, char * work) {
-    result[0] = '\0';
-    //char * save = work;
-    if (strncmp(work, a->s, strlen(a->s)) == 0) {
-        if (DEBUG) printf("ALIASAtStart %s found!\n", a->s);
-        //printf("applyAlias: Firstpart is: %i\n", s-work);
-        strcpy(result, a->r);
-        work += strlen(a->s);
-    }
-    strcat(result, work);
-    //work = save;
-}
 
-void  applyAliaseAtStart (char * result, char * line) {
-    //printf("applyAliaseAtStart: Working on line %s\n", line);
+void  applyAliaseNonRepeated (char * result, char * line) {
+    debprintf("applyAliaseNonRepeated: Working on line >%s<\n", line);
     struct alias_t * a;
-    char between[1000];
-    strcpy(between, line);
+    char * work = line;
+    result[0] = '\0';
     prepBlobIteration(AliasArray);
     while ((a = getNextBlob(AliasArray)) != NULL)  {
-        applyAliasAtStart(a, result, between);
-        strcpy(between, result); 
-        //printf("applyAliase: Between %s\n", between);
+        char * resptr = result;
+        char * s;
+        while ((s = strstr(work, a->s)) != NULL) {
+            debprintf("%s found, at %s\n", a->s,s );
+            strncpy(resptr, work, s - work); // first part
+            strcpy(resptr + (s-work), a->r); // replacement
+            work = s + strlen(a->s);
+            resptr = resptr + (s - work) + strlen(a->r);
+        }
     } 
-    strcpy(result, between);
-    //printf("applyAliase: result is %s\n", result);
+    strcat(result, work);
+    debprintf("After: applyAliaseNonRepeated %s\n", result);
 }
 
 struct line_t {
@@ -298,6 +292,7 @@ void startListen(char * ip, int port) {
 
 void printAliasTable() {
     int i;
+    puts("-----------");
     puts("Alias table");
     prepBlobIteration(AliasArray);
     i = 1;
@@ -306,17 +301,48 @@ void printAliasTable() {
         printf("%i: %s -> %s\n",i, a->s, a->r);
         i++;
     }
+    puts("-----------");
 }
+
+void searchAndReplaceEmptyToken(char * result, char * et) {
+    struct token_t tok;
+    int c = 0;
+    int argc;
+    char * ptr = result;
+    while(tok = getnexttoken(tok, ptr), tok.type != END) {
+        ptr = NULL;
+        if (argc == 0) c = NO_COM;
+        argc--;
+        if (tok.comm != NO_COM) {c = tok.comm; argc = tokenlist[tok.comm].argc;}
+        if (tok.comm == NO_COM && c == NO_COM) {
+            debprintf("undefined token..%s, prepend %s\n", tok.str, et);
+            memmove(tok.chars + strlen(et) + 1, tok.chars, strlen(tok.chars) + 1);
+            strcpy(tok.chars, et);
+            tok.chars[strlen(et)] = ' ';
+            ptr = tok.chars;
+        }
+    }
+    debprintf("After SearchAndReplace.. %s\n", result);
+}
+
+void removeTrailingNewlineChar(char * line) {
+    if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = '\0';
+}
+
+void removeTrailingSpaces(char * l) {
+    while(l[strlen(l)-1] == ' ') l[strlen(l)-1] = '\0';
+}
+
 
 int main (int argc, char ** argv) {
     char configfile[100] = "";
     makingconfigpath(configfile);
     //evaluating commandline arguments.. there are some special commands like
-    //? and config and script..
     //concatenate the rest to one chunk
     bool run = true;
     bool listen = false;
     char commandline [200] = "";
+    bool printaliastable = false;
     if (argc == 1) printusage();
     int i;
     for (i = 1; i< argc; i++) {
@@ -327,10 +353,8 @@ int main (int argc, char ** argv) {
             printconfigfile(configfile);
             exit(0);
         } else if (strcmp(argv[i], "-d") == 0) {
-            setcolor(RED);
-            printf("DEBUG messages activated\n");
-            setcolor(NOCOLOR);
             DEBUG = 1;
+            debprintf("DEBUG messages activated\n");
             continue;
         /* } else if (strcmp(argv[i], "script") == 0) {
             printscript = true;
@@ -344,18 +368,21 @@ int main (int argc, char ** argv) {
            // } 
            // listen = true;
            // continue;
+        } else if (strcmp(argv[i], "alias" ) == 0) {
+            printaliastable = true;
+            continue;
         }
-
         strcat(commandline, argv[i]);
         strcat(commandline, " ");
     };
 
     FILE * datei;
-    char DEF_COM[10] = "";
+    struct alias_t * EMP_AL = NULL;
     datei = fopen(configfile, "r");
     if (datei == NULL) 
         puts("The config file does not exist. Please refer to 'toc -?' if you dont know what I am writing about..");
     else {
+        debputs("Processing configfile");
         //raed it..
         char line[200];
         while (fgets(line, 200, datei)) {
@@ -363,82 +390,35 @@ int main (int argc, char ** argv) {
             if (line[0] == '#') continue;
             if (line[0] == '\n') continue;
             char result[1000];
-            //newline entfernen..
-            if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = '\0';
+            removeTrailingNewlineChar(line);
             applyAliase(result, line);
+            //applyAliaseNonRepeated(result, line);
+            //now look for new alias definitios
             char * ap;
-            if ((ap = strstr(result, " := ")) != NULL) {
+            if ((ap = strstr(result, ":= ")) != NULL) {
                 *ap = '\0';
-                defineAlias(result, ap+4);
-                *ap = ' ';
+                while(result[strlen(result)-1] == ' ') result[strlen(result)-1] = '\0';
+                if (result[0] == '\0') EMP_AL = defineAlias("EMPTY_TOKEN", ap +3); 
+                else defineAlias(result, ap+3);
                 continue;
             } 
-            if (strncmp(result, ":= ",3) == 0) {
-                strcpy(DEF_COM, result+3);
-                if (DEBUG) printf("Default Token is set to %s\n", DEF_COM);
-                continue;
-            }
-
-if (strlen(DEF_COM) > 0) {       
-    struct token_t tok;
-    int c = 0;
-    char * ptr = result;
-    while(tok = getnexttoken(tok, ptr), tok.type != END) {
-        ptr = NULL;
-        if (tok.comm != NO_COM) c = tok.comm;
-        if (tok.comm == NO_COM && c == NO_COM) {
-            if (DEBUG) printf("undefined token..%s\n", tok.str);
-            //memmove(result+3, result, strlen(result)+1);
-            memmove(result + strlen(DEF_COM) + 1, result, strlen(result) + 1);
-            strcpy(result, DEF_COM);
-            result[strlen(DEF_COM)] = ' ';
-            //strncpy(result, "-o  ", 3);
-            char result2[200];
-            applyAliaseAtStart(result2, result);
-            strcpy(result, result2);
-            result2[0] = '\0';
-            ptr = result2;
-        }
-    }
-}    
-
+            if (EMP_AL != NULL) searchAndReplaceEmptyToken(result, EMP_AL->r);
             addconfigline(result);
         } 
-        if (DEBUG) puts("Config file has been processed.");
+        debputs(" ** Config file has been successfully processed. ** ");
         fclose(datei);
     }
 
+    if (printaliastable) printAliasTable();
 
-printAliasTable();
-
-char result[200];
-applyAliase(result, commandline);
-    //now replace missing command at commandline
-if (strlen(DEF_COM) > 0) {       
-    struct token_t tok;
-    int c = 0;
-    char * ptr = result;
-    while(tok = getnexttoken(tok, ptr), tok.type != END) {
-        ptr = NULL;
-        if (tok.comm != NO_COM) c = tok.comm;
-        if (tok.comm == NO_COM && c == NO_COM) {
-            if (DEBUG) printf("undefined token..%s\n", tok.str);
-            memmove(result + strlen(DEF_COM) + 1, result, strlen(result) + 1);
-            //strncpy(result, "-o  ", 3);
-            strcpy(result, DEF_COM);
-            result[strlen(DEF_COM)] = ' ';
-            char result2[200];
-            applyAliaseAtStart(result2, result);
-            strcpy(result, result2);
-            result2[0] = '\0';
-            ptr = result2;
-        }
-    }
-}
+    debprintf("Processing commandline: %s\n", commandline);
+    char result[200];
+    applyAliaseNonRepeated(result, commandline);
+    if (EMP_AL != NULL) searchAndReplaceEmptyToken(result, EMP_AL->r);
     addconfigline(result);
+    debputs(" ** Commandline has been successfully processed. ** ");
 
-
-
+    debputs("Parsing.. ");
     //now parse everything
     char * currentline = NULL;
     prepBlobIteration(ConfigFile);
@@ -446,47 +426,38 @@ if (strlen(DEF_COM) > 0) {
         struct token_t tok;
         struct token_t ctok;
         ctok.comm = NO_COM;
-        tok.type = START;
-        int current_comm = NO_COM;
         char l[50] ="";
-       
         while (tok = getnexttoken(tok, currentline), tok.type != END) {
             currentline = NULL;
-            if (DEBUG) printf("current token is : %s, with length %d, and com %d\n", tok.str , tok.len, tok.comm);
+            debprintf("current token is : >%s<, with length %d, and com %d, type %d\n", tok.str , tok.len, tok.comm, tok.type);
             struct token_t seektok = getnexttoken(tok, NULL);
-            if (DEBUG) printf("and seek token is : %s, with length %d, and type %d\n", seektok.str , seektok.len, seektok.type);
+            //debprintf("and seek token is : >%s<, with length %d, and type %d\n", seektok.str , seektok.len, seektok.type);
             fflush(stdout);
 
             if (tok.type == EOL) continue; // an empty line
-                
+
             if (tok.comm == OSC_COM) {
-                current_comm = OSC_COM;
                 ctok = tok;
                 l[0] = '\0';
                 continue;
             } else if (tok.comm == PAUSE_COM) {
                 ctok = tok;
                 tok = getnexttoken(tok, NULL);
-                current_comm = NO_COM;
                 addline(&ctok, tok.str);
                 continue;
            } else if (tok.comm == OUT_COM) {
                 ctok = tok;
                 tok = getnexttoken(tok, NULL);
-                current_comm = NO_COM;
                 addline(&ctok, tok.str); 
                 continue;
             } else if (tok.comm == LOOP_COM) {
-                current_comm = NO_COM;
                 addline(&tok, "");
                 continue;
             } else if (tok.comm == ECHO_COM) {
                 ctok = tok;
                 l[0] = '\0';
-                current_comm = ECHO_COM;
                 continue;
             } else if (tok.comm == SCRIPT_COM) {
-                current_comm = NO_COM;
                 addline(&tok, "");
                 continue;
             } else if (tok.comm == LISTEN_COM) {
@@ -500,24 +471,24 @@ if (strlen(DEF_COM) > 0) {
                 startListen(lip, lport); 
                 listen = true;
                continue;
+            }   else if (ctok.comm == NO_COM) {
+                    printf("Dont know what to do with %s\n", tok.str);
+                    printf("May be there is an '-o' missing or look for 'EMPTY TOKEN' in the man pages\n");
+                    exit(0);
             }
 
-           strcat(l, tok.str);
-            if (seektok.type == END || seektok.comm != NO_COM) {
-                if (ctok.comm == OSC_COM) {
-                    //checkOSCcommand(l);
-                    //struct OSCMsg_t * oscmsg = OSCcreateMessagefromstr(l);
-                    //OSCcheckaddress(oscmsg->addr);
-                    //OSCFreeMessage(oscmsg);
-                } else if (ctok.comm == NO_COM) {
-                    //printf("Addline with ctok %i \n", ctok.comm);
-                    printf("Dont know what to do with %s\n", l);
-                    printf("May be there is an '-o' missing or look for 'DEFAULT TOKEN' in the man pages\n");
-                    exit(0);
-                }
+            strcat(l, tok.str); strcat(l, " ");
+
+            if (seektok.type == END || seektok.comm != NO_COM ) {
+                //printf("Adding line %s\n", l);
+                removeTrailingSpaces(l);
                 addline(&ctok, l);
                 l[0] = '\0';
-            } else strcat(l, " ");
+                ctok.comm  = NO_COM;
+                continue;
+            }
+
+
         }
     }
         
@@ -535,26 +506,21 @@ if (strlen(DEF_COM) > 0) {
     if (!run) exit(0);
 
     //run script
-    if (DEBUG) {
-        printf("--------------------\n");
-        printf("Now run the script..\n");
-        if (LineArray == NULL) puts("There is none..");
-    }
-    if (LineArray != NULL) { // no script there
+    debprintf("--------------------\n");
+    debprintf("Now run the script..\n");
+    if (LineArray == NULL) debputs("There is none..");
+    if (LineArray != NULL) { 
         //printf("Thats all for now... \n");
         //exit(0);
     struct line_t * cl;      //current line
     int linenumber = 1;
     cl = getLine(linenumber);
     do  {
-        if (DEBUG) {
-            printf("Line %i :", linenumber);
-            printf(" current command is : %i, with line %s length %li\n", cl->com , cl->str, strlen(cl->str));
-            fflush(stdout);
-        }
+        debprintf("Line %i :", linenumber);
+        debprintf(" current command is : %i, with line %s length %li\n", cl->com , cl->str, strlen(cl->str));
 
         if (cl->com == OSC_COM) {
-            if (DEBUG) printf("send osc message\n");
+            debprintf("send osc message\n");
             sendOSCfromstr(cl->str);
         } else if (cl->com == PAUSE_COM) {
             usleep(atoi(cl->str) * 1000);
@@ -569,7 +535,7 @@ if (strlen(DEF_COM) > 0) {
              struct line_t * li;
             prepBlobIteration(LineArray);
             while((li = getNextBlob(LineArray)) != NULL)  {
-                printf("%i: %5s, %s\n", li->linenumber, gettokenname(li->com), li->str);
+                printf("%i: %5s, %s\n", li->linenumber, /*gettokenname(li->com)*/ tokenlist[li->com].str, li->str);
             }
         }    
         linenumber++;

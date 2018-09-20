@@ -312,10 +312,6 @@ void OSCFreeMessage(struct OSCMsg_t * osc) {
 bool OSCcheckaddress(char * addr) {
     bool valid = false;
     if (addr[0] == '/') valid = true;
-    if (!valid) {
-        printf("OSC address '%s' is not valid! I wont send it. Try harder next time..\n", addr);
-        exit(EXIT_FAILURE);
-    }
-    return true;
+    return valid;
 }
 
