@@ -311,7 +311,8 @@ void OSCFreeMessage(struct OSCMsg_t * osc) {
 
 bool OSCcheckaddress(char * addr) {
     bool valid = false;
-    if (addr[0] == '/') valid = true;
+    if (addr[0] == '/') 
+    if (strlen(addr) >= 2) valid = true;
     return valid;
 }
 

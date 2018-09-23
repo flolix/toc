@@ -17,6 +17,7 @@
 #include "blobarray.h"
 #include "udp.h"
 #include "debug.h"
+#include "token.h"
 
 
 int RECEIVE_COLOR = GREEN;
@@ -29,21 +30,25 @@ int PORT = 0;
 
 int OUT = 0b001;
 
-void sendOSCfromstr(char * s) {
-    char * endptr;
-    endptr = strchr(s, ' ');
-    *endptr = '\0';
-    strcpy(IP, s);
-    *endptr = ' ';
-    s = endptr+1; 
-    PORT = strtol(s, &endptr, 10);
-    s = endptr+1;
+void sendOSC(char * s) {
+    char ip [20];
+    int port;
+    struct token_t tok; 
+    tok = getnexttoken(tok, s); 
+    strlcpy(ip, tok.chars, tok.len);
+
+    tok = getnexttoken(tok, NULL);
+    port = atoi(tok.chars);
+
+    tok = getnexttoken(tok, NULL);
+    s = tok.chars;
+
     struct OSCMsg_t * oscmsg;
     oscmsg = OSCcreateMessagefromstr(s);
     if (!OSCcheckaddress(oscmsg->addr)) {
-        printf("Something wrong with your OSC message:");
+        printf("Something wrong with your OSC message: ");
         OSCPrintMsg(oscmsg);
-        puts("Probably the address");
+        puts("Probably a garbled address.");
         exit(1);
     }
     setcolor(SEND_COLOR);
@@ -53,105 +58,46 @@ void sendOSCfromstr(char * s) {
     //OUT:
     // Bit 3: print to stdout, Bit 2: print in hex to stdout, Bit 1: send via udp
 
-    if ((OUT & 1) == 1) sendUDP(oscmsg->buf, oscmsg->len, IP, PORT);
+    if ((OUT & 1) == 1) sendUDP(oscmsg->buf, oscmsg->len, ip, port);
     if ((OUT & 2) == 2) {
         int i;
-        for (i = 0; i< oscmsg->len; i++) {
-            printf("%.2x ", (uint8_t) oscmsg->buf[i]);
-        }
+        for (i = 0; i< oscmsg->len; i++) printf("%.2x ", (uint8_t) oscmsg->buf[i]); 
         puts("");
     }
     if ((OUT & 4) == 4) {
         int i;
-        for (i = 0; i< oscmsg->len; i++) {
-            putc(oscmsg->buf[i], stdout);
-        }
+        for (i = 0; i< oscmsg->len; i++) putc(oscmsg->buf[i], stdout); 
         fflush(stdout);
     }
     OSCFreeMessage(oscmsg);
 }
 
-struct token_t {
-    char * chars;
-    int len;
-    int type;
-    char str[40];
-    int comm;
-};
-
-enum {NON, START, END, EOL, COM};
-
-enum {NO_COM, PAUSE_COM, OSC_COM, LOOP_COM, ECHO_COM, OUT_COM, SCRIPT_COM, LISTEN_COM};
-struct tokenlist_t {
-    int com;
-    char str[10];
-    int argc;
-} tokenlist[15] = {{NO_COM, "",0}, {PAUSE_COM, "-p", 1}, {OSC_COM, "-o", 99}, {LOOP_COM, "-l",0}, {ECHO_COM, "-e",99}, {OUT_COM,"-out",1},{SCRIPT_COM, "script",0},{LISTEN_COM, "listen",2},{99}};
-
-
-struct token_t getnexttoken(struct token_t tok, char * begin) {
-    struct token_t t;
-    t.type = NON;
-    t.len = 1;
-    t.str[0] = '\0';
-    t.chars = NULL;
-    t.comm = NO_COM;
-
-    if (begin != NULL) {
-        t.chars = begin;
-    } else {
-        t.chars = tok.chars+tok.len;
-        // if space (or spaces) then jump over
-        while (*t.chars == ' ') t.chars++;
-    }
-    if (*t.chars == '\n') {
-        t.type = EOL;
-        return t;
-    }
- 
-    if (*t.chars == '\0') {
-        t.type = END;
-        t.len = 0;
-        return t;
-    }
-  
-    char * eot = t.chars; 
-    do {
-        eot++;   
-    } while (*eot != ' ' && *eot != '\n' && *eot != '\0');
- 
-    t.len =  eot - t.chars; 
-    strncpy(t.str, t.chars, t.len);
-    t.str[t.len] = '\0';
-   
-    int i = 0; 
-    while (tokenlist[i].com != 99 && strcmp(t.str, tokenlist[i].str) != 0) i++;
-    if (tokenlist[i].com == 99) t.comm = NO_COM;
-    else t.comm = tokenlist[i].com;
-    
-    return t;
-} 
   
 void printconfigfile(char * name) {
     FILE * datei;
-    char line[300];
+    //char line[300];
     datei = fopen(name, "r");  
     if (datei == NULL) {
         perror("open config file failed");
         exit(1);
     }   
-    int i = 1;
     printf("Config file is %s\n", name);
-    //puts  ("");
+    #define BUFSIZE 1024
+    char * inbuf = malloc(BUFSIZE);
+    int rb;
+    while ((rb = fread(inbuf, 1, BUFSIZE, datei))) fwrite(inbuf, 1, rb, stdout); 
+
+/*
+    int i = 1;
     while( fgets(line,299,datei)) {
-        //remove trailing newline if any..
-        if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = '\0';
+        removeTrailingNewlineChars(line);
         if ((line[0] == '/' && line[1] == '/') ||
             (line[0] == '#')) setcolor(D_GRAY);
         printf("%s\n", line);
         setcolor(NOCOLOR);
         i++;
     }
+*/
     fclose(datei);
 }
 
@@ -172,7 +118,6 @@ struct alias_t *  defineAlias(char * search, char * replace) {
     appendBlob(&AliasArray, newalias);
     return newalias;
 }
-
 void applyAlias(struct alias_t * a, char * result, char * work) {
     result[0] = '\0';
     char * s;
@@ -200,12 +145,9 @@ void  applyAliase (char * result, char * line) {
     while ((a = getNextBlob(AliasArray)) != NULL)  {
         applyAlias(a, result, between);
         strcpy(between, result); 
-        //printf("applyAliase: Between %s\n", between);
     } 
     strcpy(result, between);
-    //printf("applyAliase: result is %s\n", result);
 }
-
 
 void  applyAliaseNonRepeated (char * result, char * line) {
     debprintf("applyAliaseNonRepeated: Working on line >%s<\n", line);
@@ -213,15 +155,15 @@ void  applyAliaseNonRepeated (char * result, char * line) {
     char * work = line;
     result[0] = '\0';
     prepBlobIteration(AliasArray);
-    while ((a = getNextBlob(AliasArray)) != NULL)  {
         char * resptr = result;
+    while ((a = getNextBlob(AliasArray)) != NULL)  {
         char * s;
         while ((s = strstr(work, a->s)) != NULL) {
             debprintf("%s found, at %s\n", a->s,s );
             strncpy(resptr, work, s - work); // first part
             strcpy(resptr + (s-work), a->r); // replacement
             work = s + strlen(a->s);
-            resptr = resptr + (s - work) + strlen(a->r);
+            resptr = resptr + (s - work) + strlen(a->r)+2;
         }
     } 
     strcat(result, work);
@@ -249,7 +191,6 @@ void addline(struct token_t * tok, char * line) {
 struct line_t * getLine(int i) {
     return getBlob(LineArray, i-1);
 }
-       
 
 struct blob_t * ConfigFile = NULL;
 
@@ -263,7 +204,7 @@ void addconfigline(char * line) {
     appendBlob(&ConfigFile, newline);
 }
 
-void makingconfigpath(char * configfile) {
+void makeConfigPath(char * configfile) {
     //find the path of the config file by
     // using the system which tool
     FILE *which;
@@ -272,10 +213,10 @@ void makingconfigpath(char * configfile) {
     pclose(which);
 
     //ok got the path and filename of the binary .. now removing the last \n    
-     configfile[strlen(configfile)-1] = '\0';
+    removeTrailingNewlineChars(configfile);
     //and adding .config
     strcat(configfile, ".config");
-    if (DEBUG) printf("Config file is: %s\n", configfile); 
+    debprintf("Config file is: %s\n", configfile); 
 }
 
 pthread_t th;
@@ -291,11 +232,10 @@ void startListen(char * ip, int port) {
 } 
 
 void printAliasTable() {
-    int i;
+    int i = 1;
     puts("-----------");
     puts("Alias table");
     prepBlobIteration(AliasArray);
-    i = 1;
     struct alias_t * a;
     while ((a = getNextBlob(AliasArray)) != NULL) {
         printf("%i: %s -> %s\n",i, a->s, a->r);
@@ -305,41 +245,46 @@ void printAliasTable() {
 }
 
 void searchAndReplaceEmptyToken(char * result, char * et) {
+    debprintf("searchAndReplaceEmptyToken launched with >%s<\n", result);
     struct token_t tok;
     int c = 0;
-    int argc;
+    int argc = 0;
     char * ptr = result;
-    while(tok = getnexttoken(tok, ptr), tok.type != END) {
+    while(tok = getnexttoken(tok, ptr), tok.comm != TOK_END) {
+        //debprintf("tok ist %s, tok.len = %d, tok.comm = %d\n", tok.str, tok.len, tok.comm);
         ptr = NULL;
-        if (argc == 0) c = NO_COM;
-        argc--;
+        if (argc == 0) c = NO_COM; else argc--;
         if (tok.comm != NO_COM) {c = tok.comm; argc = tokenlist[tok.comm].argc;}
         if (tok.comm == NO_COM && c == NO_COM) {
             debprintf("undefined token..%s, prepend %s\n", tok.str, et);
+            //char * emptytoken_withspace;
+            //emptytoken_withspace = malloc(strlen(et)+2);
+            //strcpy(emptytoken_withspace, et); strcat(emptytoken_withspace, " ");
+            //strinsert(tok.chars, emptytoken_withspace);
+            //free(emptytoken_withspace);
             memmove(tok.chars + strlen(et) + 1, tok.chars, strlen(tok.chars) + 1);
             strcpy(tok.chars, et);
             tok.chars[strlen(et)] = ' ';
             ptr = tok.chars;
         }
     }
-    debprintf("After SearchAndReplace.. %s\n", result);
+    debprintf("After SearchAndReplaceEmptyToken >%s<\n", result);
 }
 
-void removeTrailingNewlineChar(char * line) {
-    if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = '\0';
+void printScript() {
+    struct line_t * li;
+    prepBlobIteration(LineArray);
+    while((li = getNextBlob(LineArray)) != NULL)  {
+        printf("%i: %5s, %s\n", li->linenumber, tokenlist[li->com].str, li->str);
+    }
 }
-
-void removeTrailingSpaces(char * l) {
-    while(l[strlen(l)-1] == ' ') l[strlen(l)-1] = '\0';
-}
-
 
 int main (int argc, char ** argv) {
     char configfile[100] = "";
-    makingconfigpath(configfile);
+    makeConfigPath(configfile);
     //evaluating commandline arguments.. there are some special commands like
     //concatenate the rest to one chunk
-    bool run = true;
+    bool printscript = false;
     bool listen = false;
     char commandline [200] = "";
     bool printaliastable = false;
@@ -356,11 +301,10 @@ int main (int argc, char ** argv) {
             DEBUG = 1;
             debprintf("DEBUG messages activated\n");
             continue;
-        /* } else if (strcmp(argv[i], "script") == 0) {
+         } else if (strcmp(argv[i], "script") == 0) {
             printscript = true;
-            run = false;
             continue;
-        */
+        
         //} else if (strcmp(argv[i] , "listen") == 0) {
            // if (pthread_create(&th, NULL, &listenfred, NULL) != 0) {
            //     printf("Couldnt create thread\n");
@@ -376,6 +320,7 @@ int main (int argc, char ** argv) {
         strcat(commandline, " ");
     };
 
+
     FILE * datei;
     struct alias_t * EMP_AL = NULL;
     datei = fopen(configfile, "r");
@@ -383,21 +328,20 @@ int main (int argc, char ** argv) {
         puts("The config file does not exist. Please refer to 'toc -?' if you dont know what I am writing about..");
     else {
         debputs("Processing configfile");
-        //raed it..
         char line[200];
         while (fgets(line, 200, datei)) {
             if (line[0] == '/' && line[1] == '/') continue;
             if (line[0] == '#') continue;
             if (line[0] == '\n') continue;
             char result[1000];
-            removeTrailingNewlineChar(line);
+            removeTrailingNewlineChars(line);
             applyAliase(result, line);
             //applyAliaseNonRepeated(result, line);
             //now look for new alias definitios
             char * ap;
             if ((ap = strstr(result, ":= ")) != NULL) {
                 *ap = '\0';
-                while(result[strlen(result)-1] == ' ') result[strlen(result)-1] = '\0';
+                removeTrailingSpaceChars(result);
                 if (result[0] == '\0') EMP_AL = defineAlias("EMPTY_TOKEN", ap +3); 
                 else defineAlias(result, ap+3);
                 continue;
@@ -427,14 +371,14 @@ int main (int argc, char ** argv) {
         struct token_t ctok;
         ctok.comm = NO_COM;
         char l[50] ="";
-        while (tok = getnexttoken(tok, currentline), tok.type != END) {
+        while (tok = getnexttoken(tok, currentline), tok.comm != TOK_END) {
             currentline = NULL;
             debprintf("current token is : >%s<, with length %d, and com %d, type %d\n", tok.str , tok.len, tok.comm, tok.type);
             struct token_t seektok = getnexttoken(tok, NULL);
             //debprintf("and seek token is : >%s<, with length %d, and type %d\n", seektok.str , seektok.len, seektok.type);
             fflush(stdout);
 
-            if (tok.type == EOL) continue; // an empty line
+            if (tok.comm == TOK_EOL) continue; // an empty line
 
             if (tok.comm == OSC_COM) {
                 ctok = tok;
@@ -457,97 +401,71 @@ int main (int argc, char ** argv) {
                 ctok = tok;
                 l[0] = '\0';
                 continue;
-            } else if (tok.comm == SCRIPT_COM) {
-                addline(&tok, "");
-                continue;
             } else if (tok.comm == LISTEN_COM) {
                 char lip[20];
                 int lport;
                 tok = getnexttoken(tok, NULL);
-                strcpy(lip, tok.str);
+                strlcpy(lip, tok.chars, tok.len);
                 tok = getnexttoken(tok, NULL);
-                lport = atoi(tok.str);
+                lport = atoi(tok.chars);
                 printf("StartListen with %s, %i\n", lip, lport);
                 startListen(lip, lport); 
                 listen = true;
                continue;
             }   else if (ctok.comm == NO_COM) {
-                    printf("Dont know what to do with %s\n", tok.str);
+                    printf("Dont know what to do with %s\n", tok.chars);
                     printf("May be there is an '-o' missing or look for 'EMPTY TOKEN' in the man pages\n");
                     exit(0);
             }
 
-            strcat(l, tok.str); strcat(l, " ");
+            strncat(l, tok.chars, tok.len); strcat(l, " ");
 
-            if (seektok.type == END || seektok.comm != NO_COM ) {
-                //printf("Adding line %s\n", l);
-                removeTrailingSpaces(l);
+            if (seektok.comm == TOK_END || seektok.comm != NO_COM ) {
+                removeTrailingSpaceChars(l);
                 addline(&ctok, l);
                 l[0] = '\0';
                 ctok.comm  = NO_COM;
                 continue;
             }
 
-
         }
     }
         
 
     //print script..
-/*
-    if (printscript || DEBUG) {
-        struct line_t * li;
-        prepBlobIteration(LineArray);
-        while((li = getNextBlob(LineArray)) != NULL)  {
-            printf("%i: %5s, %s\n", li->linenumber, gettokenname(li->com), li->str);
-        }
-    } 
-*/
-    if (!run) exit(0);
+    if (printscript || DEBUG)  printScript();  
 
     //run script
     debprintf("--------------------\n");
     debprintf("Now run the script..\n");
     if (LineArray == NULL) debputs("There is none..");
     if (LineArray != NULL) { 
-        //printf("Thats all for now... \n");
-        //exit(0);
-    struct line_t * cl;      //current line
-    int linenumber = 1;
-    cl = getLine(linenumber);
-    do  {
-        debprintf("Line %i :", linenumber);
-        debprintf(" current command is : %i, with line %s length %li\n", cl->com , cl->str, strlen(cl->str));
-
-        if (cl->com == OSC_COM) {
-            debprintf("send osc message\n");
-            sendOSCfromstr(cl->str);
-        } else if (cl->com == PAUSE_COM) {
-            usleep(atoi(cl->str) * 1000);
-        } else if (cl->com == LOOP_COM) {
-            linenumber = 0;
-        } else if (cl->com == ECHO_COM) {
-            printf("%s\n", cl->str);
-        } else if (cl->com == OUT_COM) {
-            if (strcmp(cl->str,"stdout") == 0) { OUT |= 0b100; OUT &= 0b110;}
-            else if (strcmp(cl->str, "network")== 0) { OUT |= 0b001; OUT &=0b011;}
-        } else if (cl->com == SCRIPT_COM) {
-             struct line_t * li;
-            prepBlobIteration(LineArray);
-            while((li = getNextBlob(LineArray)) != NULL)  {
-                printf("%i: %5s, %s\n", li->linenumber, /*gettokenname(li->com)*/ tokenlist[li->com].str, li->str);
-            }
-        }    
-        linenumber++;
+        struct line_t * cl;      //current line
+        int linenumber = 1;
         cl = getLine(linenumber);
-    }  while (cl != NULL);
+        do  {
+            debprintf("Line %i :", linenumber);
+            debprintf(" current command is : %i, with line %s length %li\n", cl->com , cl->str, strlen(cl->str));
 
-
-
-    removeBlobArray(LineArray);
-    
+            if (cl->com == OSC_COM) {
+                debprintf("send osc message\n");
+                sendOSC(cl->str);
+            } else if (cl->com == PAUSE_COM) {
+                usleep(atoi(cl->str) * 1000);
+            } else if (cl->com == LOOP_COM) {
+                linenumber = 0;
+            } else if (cl->com == ECHO_COM) {
+                printf("%s\n", cl->str);
+            } else if (cl->com == OUT_COM) {
+                if (strcmp(cl->str,"stdout") == 0) { OUT |= 0b100; OUT &= 0b110;}
+                else if (strcmp(cl->str, "network")== 0) { OUT |= 0b001; OUT &=0b011;}
+            }    
+            linenumber++;
+            cl = getLine(linenumber);
+        }  while (cl != NULL);
+        removeBlobArray(LineArray);
     }
-    if (listen) pthread_join(th , NULL);
 
+    if (listen) pthread_join(th , NULL);
 }
 
