@@ -6,15 +6,13 @@
 #include <stdbool.h>
 
 #include "osc.h"
+#include "debug.h"
 
 extern int DEBUG;
 
 
-//int anzahlnulls (int i) {
-//    return 4- (i & 0b11);
-//}
-
-
+//creates an osc string out of a system char *
+//returns the length of the buffer
 int OSCString(char * buf, char * s) {
     //printf("in OSCstring with %s, len%i\n", s, strlen(s));
     strcpy(buf, s);
@@ -27,6 +25,8 @@ int OSCString(char * buf, char * s) {
     return ol;
 }
 
+//creates an osc int out of a system int32_t
+//returns the length of the buffer 
 int OSCInt(char * buf, int32_t  v) {
     //turn the order of the int around
     int j = 0;
@@ -38,6 +38,8 @@ int OSCInt(char * buf, int32_t  v) {
     return 4;
 } 
 
+//creates an osc float out of a system float.
+//returns the length of the buffer
 int OSCFloat(char * buf, float v) {
     int j = 0;
     int i;
@@ -48,21 +50,22 @@ int OSCFloat(char * buf, float v) {
     return 4;
 }
 
+//creates an OSCMsg out of a str..
 struct OSCMsg_t *  OSCcreateMessagefromstr (char  * a) {
-    char s[100];
+    char * s = malloc(strlen(a)+1);
     strcpy(s, a);
-    char addr_buf[40];
+    char addr_buf[41];
     int addr_len;
 
-    char typetable_buf[12];
+    char typetable_buf[13];
     int typetable_len;
 
-    char param_buf[40];
+    char param_buf[41];
     int param[10];
     int param_len[10];
 
     int parcount = 0;
-    char listbuf[12];
+    char listbuf[13];
     char * space = strchr(s, ' ');
     int paramlength = 0;
     bzero(listbuf,12);
@@ -84,7 +87,7 @@ struct OSCMsg_t *  OSCcreateMessagefromstr (char  * a) {
                     if (space2 != NULL) *space2 = '\0';
                     //decide if its a string, int, float
                     if (*space == '"') {
-                        if (DEBUG) printf("Oh, its a string (with quotation marks)!\n");
+                        debputs("Oh, its a string (with quotation marks)!");
                         if (space2 != NULL) *(space2-1) = '\0'; //eliminate the trailing "
                         else space[strlen(space)-1] = '\0';
                         param_len[parcount-1] = OSCString(param_buf+paramlength, space+1); //+1 because of leading "
@@ -94,34 +97,32 @@ struct OSCMsg_t *  OSCcreateMessagefromstr (char  * a) {
                         char * endptr;
                         long int val = strtol(space, &endptr, 0); 
                         if (*endptr == '\0') {
-                            if (DEBUG) printf("Oh, its an int! \n");
+                            debputs("Oh, its an int!");
                             param_len[parcount-1] = OSCInt(param_buf+paramlength, (int32_t) val);
                             paramlength += param_len[parcount-1];
                             listbuf[parcount] = 'i';  
                         } else {
                             float val = strtof(space, &endptr);
                             if (*endptr == '\0') {
-                                if (DEBUG) printf("Oh, its a float! \n");
+                                debputs("Oh, its a float!");
                                 param_len[parcount-1] = OSCFloat(param_buf+paramlength, (float) val);
                                 paramlength += param_len[parcount-1];
                                 listbuf[parcount] = 'f';  
                             } else {
                                 //must be a string.. nothing else left
-                                if (DEBUG) printf("Oh, its a string!\n");
+                                debputs("Oh, its a string!");
                                 param_len[parcount-1] = OSCString(param_buf+paramlength, space);
-                                //param[parcount-1] = param_buf+ paramlength;
                                 paramlength += param_len[parcount-1];
                                 listbuf[parcount] = 's';  
                             }
                         }
                     }
-                    space = space2+1;
+                    space = space2 + 1;
                 } while(space2 != NULL);
             }
     }
 
     typetable_len = OSCString(typetable_buf, listbuf);
-    //move oscmsg;
     struct OSCMsg_t  * r;
     r = malloc(sizeof(struct OSCMsg_t));
     r->len = addr_len + typetable_len + paramlength;
@@ -141,6 +142,8 @@ struct OSCMsg_t *  OSCcreateMessagefromstr (char  * a) {
         r->param[i] = r->buf + addr_len + typetable_len + param[i];
         r->param_len[i] = param_len[i];
     } 
+
+    free (s);
     return r;
 }
 
@@ -232,7 +235,6 @@ struct OSCMsg_t * OSCsplit(char * buf, int len) {
             state = OSC_CHECKFORNEXTPARAM;
         } else if (state == OSC_INTEGER) {
             o->param[o->paramcount-1] = o->buf+lasti;
-            //OSCChangeorder(o.param[o.paramcount-1]);
             o->param_len[o->paramcount-1] = 4;
             state = OSC_CHECKFORNEXTPARAM;
         } else if (state == OSC_STRING && o->buf[i] == '\0') {
@@ -273,34 +275,16 @@ void OSCtoStr (char * buf, struct OSCMsg_t * osc) {
         if (osc->typetable[i+1] == 'i') sprintf(buff, "%i ", OSCtoInt(osc->param[i]));
         if (osc->typetable[i+1] == 'f') sprintf(buff, "%f ", OSCtoFloat(osc->param[i]));
         if (osc->typetable[i+1] == 's') sprintf(buff, "%s ", osc->param[i]);
-        //printf("%s", buff);
         strcat(buf, buff);
-        //printf("buf %s", buf);
     }
     sprintf(buff, "( %i parameter)", osc->paramcount);
     strcat (buf, buff);
 }
 
 void OSCPrintMsg (struct OSCMsg_t * osc) {
-    /*
-    int i,j;
-    for (i = 0; i<osc.addr_len; i++) printf("%x ", osc.addr[i]);
-    for (i = 0; i<osc.typetable_len; i++) printf("%x ", osc.typetable[i]);
-    for (i = 0; i< osc.paramcount; i++) for (j = 0; j<osc.param_len[i]; j++) printf("%x ", osc.param[i][j]);
-    printf("\n");
-    */
     char buf[100];
     OSCtoStr (buf, osc);
     puts(buf);
-/*
-    printf("%s, %i paramter:", osc.addr, osc.paramcount);
-    for (i = 0; i < osc.paramcount; i++) {
-        if (osc.typetable[i+1] == 'i') printf("%i ", OSCtoInt(osc.param[i]));
-        if (osc.typetable[i+1] == 'f') printf("%f ", OSCtoFloat(osc.param[i]));
-        if (osc.typetable[i+1] == 's') printf("%s ", osc.param[i]);
-    }
-    printf("\n");
-*/
     fflush(stdout);
 }
 

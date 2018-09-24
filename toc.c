@@ -34,6 +34,7 @@ void sendOSC(char * s) {
     char ip [20];
     int port;
     struct token_t tok; 
+
     tok = getnexttoken(tok, s); 
     strlcpy(ip, tok.chars, tok.len);
 
@@ -247,13 +248,18 @@ void printAliasTable() {
 void searchAndReplaceEmptyToken(char * result, char * et) {
     debprintf("searchAndReplaceEmptyToken launched with >%s<\n", result);
     struct token_t tok;
-    int c = 0;
+    int c = NO_COM;
     int argc = 0;
     char * ptr = result;
     while(tok = getnexttoken(tok, ptr), tok.comm != TOK_END) {
         //debprintf("tok ist %s, tok.len = %d, tok.comm = %d\n", tok.str, tok.len, tok.comm);
         ptr = NULL;
         if (argc == 0) c = NO_COM; else argc--;
+
+        //if (tok.comm != NO_COM && tok.comm != c) {
+        //    printf("Neues Token %d\n", tok.comm);    
+        //}  
+ 
         if (tok.comm != NO_COM) {c = tok.comm; argc = tokenlist[tok.comm].argc;}
         if (tok.comm == NO_COM && c == NO_COM) {
             debprintf("undefined token..%s, prepend %s\n", tok.str, et);
@@ -304,7 +310,7 @@ int main (int argc, char ** argv) {
          } else if (strcmp(argv[i], "script") == 0) {
             printscript = true;
             continue;
-        
+        } 
         //} else if (strcmp(argv[i] , "listen") == 0) {
            // if (pthread_create(&th, NULL, &listenfred, NULL) != 0) {
            //     printf("Couldnt create thread\n");
@@ -312,10 +318,6 @@ int main (int argc, char ** argv) {
            // } 
            // listen = true;
            // continue;
-        } else if (strcmp(argv[i], "alias" ) == 0) {
-            printaliastable = true;
-            continue;
-        }
         strcat(commandline, argv[i]);
         strcat(commandline, " ");
     };
