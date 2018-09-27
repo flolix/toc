@@ -330,6 +330,46 @@ int main (int argc, char ** argv) {
         puts("The config file does not exist. Please refer to 'toc -?' if you dont know what I am writing about..");
     else {
         debputs("Processing configfile");
+ //loadfile
+        fseek(datei, 0, SEEK_END);
+        int filesize;
+        filesize = ftell(datei);
+        char * buf;
+        buf = malloc(filesize+2);
+        fseek(datei,0,SEEK_SET);
+        fread(buf, filesize, 1,datei);
+        //trailing \n and \0,
+        buf[filesize] = '\n';
+        buf[filesize+1] = '\0';
+        char * nl;
+        nl = buf-1;
+        char * ptr;
+        while ((ptr = nl+1), *ptr != '\0') {
+            nl = strchr(ptr, '\n');
+            if (nl != NULL) *nl = '\0'; 
+            if (ptr[0] == '/' && ptr[1] == '/') continue;
+            if (ptr[0] == '#') continue;
+            if (ptr[0] == '\n') continue;
+            char result[1000];
+            removeTrailingNewlineChars(ptr);
+            applyAliase(result, ptr); 
+            char * ap;
+            if ((ap = strstr(result, ":= ")) != NULL) {
+                *ap = '\0';
+                removeTrailingSpaceChars(result);
+                if (result[0] == '\0') EMP_AL = defineAlias("EMPTY_TOKEN", ap +3); 
+                else defineAlias(result, ap+3);
+                continue;
+            } 
+            if (EMP_AL != NULL) searchAndReplaceEmptyToken(result, EMP_AL->r);
+            addconfigline(result);
+        } 
+        debputs(" ** Config file has been successfully processed. ** ");
+        fclose(datei);
+        free(buf);
+    } 
+
+/*
         char line[200];
         while (fgets(line, 200, datei)) {
             if (line[0] == '/' && line[1] == '/') continue;
@@ -354,7 +394,7 @@ int main (int argc, char ** argv) {
         debputs(" ** Config file has been successfully processed. ** ");
         fclose(datei);
     }
-
+*/
     if (printaliastable) printAliasTable();
 
     debprintf("Processing commandline: %s\n", commandline);
