@@ -14,11 +14,12 @@ void removeTrailingSpaceChars(char * l) {
     while(l[strlen(l)-1] == ' ') l[strlen(l)-1] = '\0';
 }
 
+#if (!defined __APPLE__) && (!defined HAVE_STRLCPY)
 void strlcpy(char * dest, char * source, int len) {
-    strncpy(dest, source, len);
-    dest[len] = '\0';
+    strncpy(dest, source, len-1);
+    dest[len-1] = '\0';
 }
-
+#endif
 
 struct token_t getnexttoken(struct token_t tok, char * begin) {
     struct token_t t;
@@ -43,7 +44,7 @@ struct token_t getnexttoken(struct token_t tok, char * begin) {
     char * eot = t.chars; 
     do { eot++;   } while (*eot != ' ' && *eot != '\n' && *eot != '\0');
     t.len =  eot - t.chars; 
-    strlcpy(t.str, t.chars, t.len);
+    strlcpy(t.str, t.chars, t.len+1);
     int i = 0; 
     while (tokenlist[i].com != 99 && strcmp(tokenlist[i].str, t.str) != 0) i++; 
     if (tokenlist[i].com == 99) t.comm = NO_COM;

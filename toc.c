@@ -36,7 +36,9 @@ void sendOSC(char * s) {
     struct token_t tok; 
 
     tok = getnexttoken(tok, s); 
-    strlcpy(ip, tok.chars, tok.len);
+    strlcpy(ip, tok.chars, tok.len+1);
+
+printf("ip %s\n", ip);
 
     tok = getnexttoken(tok, NULL);
     port = atoi(tok.chars);
@@ -125,9 +127,11 @@ struct alias_t *  defineAlias(char * search, char * replace) {
 struct alias_t *  defineAliasByReference(char * search, int s_len, char * replace, int r_len) {
     struct alias_t * newalias = malloc(sizeof(struct alias_t));
     newalias->s = malloc(s_len+1);
-    strlcpy(newalias->s, search, s_len);
+    strlcpy(newalias->s, search, s_len+1);
+    removeTrailingSpaceChars(newalias->s);
     newalias->r = malloc(r_len+1);
-    strlcpy(newalias->r, replace, r_len);
+    strlcpy(newalias->r, replace, r_len+1);
+    removeTrailingSpaceChars(newalias->r);
     debprintf("New alias definition: search for >%s< -> replace by >%s<\n", newalias->s, newalias->r);
     appendBlob(&AliasArray, newalias);
     return newalias;
@@ -359,9 +363,9 @@ int main (int argc, char ** argv) {
             applyAliase(result, ptr); 
             char * ap;
             if ((ap = strstr(result, ":= ")) != NULL) {
-                removeTrailingSpaceChars(result);
-                if (ap == result) EMP_AL = defineAliasByReference("EMPTY_TOKEN", 11, ap+3, strlen(result)-(ap-result)-3); 
-                else defineAliasByReference(result, ap - result - 1, ap+3, strlen(result)-(ap-result)-3); 
+                //removeTrailingSpaceChars(result);
+                if (ap == result) EMP_AL = defineAliasByReference("EMPTY_TOKEN", 11, ap+3, strlen(result)-(ap-result)-2); 
+                else defineAliasByReference(result, ap - result , ap+3, strlen(result)-(ap-result)-2); 
                 continue;
             } 
             if (EMP_AL != NULL) searchAndReplaceEmptyToken(result, EMP_AL->r);

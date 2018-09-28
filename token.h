@@ -20,7 +20,9 @@ extern struct tokenlist_t tokenlist[];
  
 void removeTrailingNewlineChars(char * l);
 void removeTrailingSpaceChars(char * l );
+#if (!defined __APPLE__) && (!defined HAVE_STRLCPY)
 void strlcpy(char * dest, char * source, int len);
+#endif
 struct token_t getnexttoken(struct token_t tok, char * begin);
 
 #endif
