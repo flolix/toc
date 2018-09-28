@@ -38,7 +38,7 @@ void sendOSC(char * s) {
     tok = getnexttoken(tok, s); 
     strlcpy(ip, tok.chars, tok.len+1);
 
-printf("ip %s\n", ip);
+    //printf("ip %s\n", ip);
 
     tok = getnexttoken(tok, NULL);
     port = atoi(tok.chars);
@@ -176,15 +176,23 @@ void  applyAliaseNonRepeated (char * result, char * line) {
     while ((a = getNextBlob(AliasArray)) != NULL)  {
         char * s;
         while ((s = strstr(work, a->s)) != NULL) {
-            debprintf("%s found, at %s\n", a->s,s );
+            debprintf("%s found, at %s, pos %d\n", a->s,s ,s-work);
             strncpy(resptr, work, s - work); // first part
             strcpy(resptr + (s-work), a->r); // replacement
+    //printf("strlen of resptr is now %d \n", strlen(resptr));
+    //printf("workpos %d, s.work %d\n", work-line, s-work);
+    //printf("%d zwischen %s strlen(a->r)%d s-work %d\n",resptr-result, resptr, strlen(a->r), s-work);
+            //resptr += strlen(a->r) + 2;
+            resptr = resptr + (s - work) + strlen(a->r) + 0;
+    //printf("%d zwischen2 %s\n", resptr-result,resptr);
             work = s + strlen(a->s);
-            resptr = resptr + (s - work) + strlen(a->r)+2;
         }
+
     } 
+
     strcat(result, work);
     debprintf("After: applyAliaseNonRepeated %s\n", result);
+//exit(0);
 }
 
 struct line_t {
