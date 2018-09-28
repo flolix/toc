@@ -1,2 +1,17 @@
-~/bin/toc: toc.c osc.c help.c color.c blobarray.c udp.c debug.c token.c
-	gcc -o ~/bin/toc toc.c osc.c help.c color.c blobarray.c udp.c debug.c token.c -Wall -lpthread
+EXECDIR = ~/bin
+CC = gcc
+CFLAGS = -Wall
+LIBS = -lpthread
+
+CFILES = $(wildcard *.c)
+
+toc: $(CFILES)
+	$(CC) $(CFLAGS) -o toc $(CFILES) $(LIBS)
+
+copy:
+	cp toc.config $(EXECDIR)/toc.config
+
+install: copy
+	cp toc $(EXECDIR)/toc
+
+.PHONY: copy

@@ -73,33 +73,35 @@ void sendOSC(char * s) {
     OSCFreeMessage(oscmsg);
 }
 
+int loadfile (char * name, char ** buf) {
+    int length;
+    FILE * datei;
+    datei = fopen(name, "r");
+    if (datei == NULL) return -1;
+    fseek(datei, 0, SEEK_END);
+    length = ftell(datei);
+    fseek(datei,0,SEEK_SET);
+    *buf = malloc(length+2);
+    fread(*buf, length, 1, datei);
+    //trailing \n and \0,
+    *(*buf+length) = '\n';
+    *(*buf+length+1) = '\0';
+    length += 2;
+    fclose(datei);
+    return length;
+}
+
   
 void printconfigfile(char * name) {
-    FILE * datei;
-    //char line[300];
-    datei = fopen(name, "r");  
-    if (datei == NULL) {
+    char * buf;
+    int size = loadfile(name, &buf);
+    if (size == -1) {
         perror("open config file failed");
         exit(1);
-    }   
-    printf("Config file is %s\n", name);
-    #define BUFSIZE 1024
-    char * inbuf = malloc(BUFSIZE);
-    int rb;
-    while ((rb = fread(inbuf, 1, BUFSIZE, datei))) fwrite(inbuf, 1, rb, stdout); 
-
-/*
-    int i = 1;
-    while( fgets(line,299,datei)) {
-        removeTrailingNewlineChars(line);
-        if ((line[0] == '/' && line[1] == '/') ||
-            (line[0] == '#')) setcolor(D_GRAY);
-        printf("%s\n", line);
-        setcolor(NOCOLOR);
-        i++;
     }
-*/
-    fclose(datei);
+    buf[size-2] = '\0';
+    fwrite(buf, 1, size, stdout);
+    free(buf);
 }
 
 struct alias_t {
@@ -119,21 +121,31 @@ struct alias_t *  defineAlias(char * search, char * replace) {
     appendBlob(&AliasArray, newalias);
     return newalias;
 }
+
+struct alias_t *  defineAliasByReference(char * search, int s_len, char * replace, int r_len) {
+    struct alias_t * newalias = malloc(sizeof(struct alias_t));
+    newalias->s = malloc(s_len+1);
+    strlcpy(newalias->s, search, s_len);
+    newalias->r = malloc(r_len+1);
+    strlcpy(newalias->r, replace, r_len);
+    debprintf("New alias definition: search for >%s< -> replace by >%s<\n", newalias->s, newalias->r);
+    appendBlob(&AliasArray, newalias);
+    return newalias;
+}
+
 void applyAlias(struct alias_t * a, char * result, char * work) {
     result[0] = '\0';
     char * s;
     char * resptr = result;
     while ((s = strstr(work, a->s)) != NULL) {
         debprintf("Found %s in %s!\n", a->s, work);
-        //printf("applyAlias: Firstpart is: %i\n", s-work);
         strncpy(resptr, work, s - work);
         strcpy(resptr+(s-work), a->r);
-        //printf("applyAlias: with repl: %s\n", result);
         //setzt resptr ans ende.. man könnte auch resptr = result+strlen(result) schreiben
         resptr = strchr(resptr, '\0');
         work = s+strlen(a->s);
     }
-   strcat(result, work);
+    strcat(result, work);
 }
 
 
@@ -156,7 +168,7 @@ void  applyAliaseNonRepeated (char * result, char * line) {
     char * work = line;
     result[0] = '\0';
     prepBlobIteration(AliasArray);
-        char * resptr = result;
+    char * resptr = result;
     while ((a = getNextBlob(AliasArray)) != NULL)  {
         char * s;
         while ((s = strstr(work, a->s)) != NULL) {
@@ -285,9 +297,18 @@ void printScript() {
     }
 }
 
+char * strchrnul (char * str, int c) {
+    char * r = strchr(str, c);
+    if (r == NULL) r = strchr(str, '\0');
+    return r;
+}
+
+
 int main (int argc, char ** argv) {
     char configfile[100] = "";
     makeConfigPath(configfile);
+
+/***evaluating command line ***/
     //evaluating commandline arguments.. there are some special commands like
     //concatenate the rest to one chunk
     bool printscript = false;
@@ -311,42 +332,25 @@ int main (int argc, char ** argv) {
             printscript = true;
             continue;
         } 
-        //} else if (strcmp(argv[i] , "listen") == 0) {
-           // if (pthread_create(&th, NULL, &listenfred, NULL) != 0) {
-           //     printf("Couldnt create thread\n");
-           //     exit(EXIT_FAILURE);
-           // } 
-           // listen = true;
-           // continue;
+
         strcat(commandline, argv[i]);
         strcat(commandline, " ");
     };
 
-
-    FILE * datei;
+/***dealing with the config file ***/
     struct alias_t * EMP_AL = NULL;
-    datei = fopen(configfile, "r");
-    if (datei == NULL) 
+    int filesize;
+    char * buf;
+    if ((filesize = loadfile(configfile, &buf)) == -1) 
         puts("The config file does not exist. Please refer to 'toc -?' if you dont know what I am writing about..");
     else {
         debputs("Processing configfile");
- //loadfile
-        fseek(datei, 0, SEEK_END);
-        int filesize;
-        filesize = ftell(datei);
-        char * buf;
-        buf = malloc(filesize+2);
-        fseek(datei,0,SEEK_SET);
-        fread(buf, filesize, 1,datei);
-        //trailing \n and \0,
-        buf[filesize] = '\n';
-        buf[filesize+1] = '\0';
         char * nl;
         nl = buf-1;
         char * ptr;
         while ((ptr = nl+1), *ptr != '\0') {
-            nl = strchr(ptr, '\n');
-            if (nl != NULL) *nl = '\0'; 
+            //search for end of line and terminate it..
+            nl = strchr(ptr, '\n'); *nl = '\0'; 
             if (ptr[0] == '/' && ptr[1] == '/') continue;
             if (ptr[0] == '#') continue;
             if (ptr[0] == '\n') continue;
@@ -355,46 +359,18 @@ int main (int argc, char ** argv) {
             applyAliase(result, ptr); 
             char * ap;
             if ((ap = strstr(result, ":= ")) != NULL) {
-                *ap = '\0';
                 removeTrailingSpaceChars(result);
-                if (result[0] == '\0') EMP_AL = defineAlias("EMPTY_TOKEN", ap +3); 
-                else defineAlias(result, ap+3);
+                if (ap == result) EMP_AL = defineAliasByReference("EMPTY_TOKEN", 11, ap+3, strlen(result)-(ap-result)-3); 
+                else defineAliasByReference(result, ap - result - 1, ap+3, strlen(result)-(ap-result)-3); 
                 continue;
             } 
             if (EMP_AL != NULL) searchAndReplaceEmptyToken(result, EMP_AL->r);
             addconfigline(result);
         } 
         debputs(" ** Config file has been successfully processed. ** ");
-        fclose(datei);
         free(buf);
     } 
 
-/*
-        char line[200];
-        while (fgets(line, 200, datei)) {
-            if (line[0] == '/' && line[1] == '/') continue;
-            if (line[0] == '#') continue;
-            if (line[0] == '\n') continue;
-            char result[1000];
-            removeTrailingNewlineChars(line);
-            applyAliase(result, line);
-            //applyAliaseNonRepeated(result, line);
-            //now look for new alias definitios
-            char * ap;
-            if ((ap = strstr(result, ":= ")) != NULL) {
-                *ap = '\0';
-                removeTrailingSpaceChars(result);
-                if (result[0] == '\0') EMP_AL = defineAlias("EMPTY_TOKEN", ap +3); 
-                else defineAlias(result, ap+3);
-                continue;
-            } 
-            if (EMP_AL != NULL) searchAndReplaceEmptyToken(result, EMP_AL->r);
-            addconfigline(result);
-        } 
-        debputs(" ** Config file has been successfully processed. ** ");
-        fclose(datei);
-    }
-*/
     if (printaliastable) printAliasTable();
 
     debprintf("Processing commandline: %s\n", commandline);
@@ -405,7 +381,8 @@ int main (int argc, char ** argv) {
     debputs(" ** Commandline has been successfully processed. ** ");
 
     debputs("Parsing.. ");
-    //now parse everything
+
+/***parsing ***/
     char * currentline = NULL;
     prepBlobIteration(ConfigFile);
     while ((currentline = getconfigline()) != NULL) {
@@ -418,10 +395,7 @@ int main (int argc, char ** argv) {
             debprintf("current token is : >%s<, with length %d, and com %d, type %d\n", tok.str , tok.len, tok.comm, tok.type);
             struct token_t seektok = getnexttoken(tok, NULL);
             //debprintf("and seek token is : >%s<, with length %d, and type %d\n", seektok.str , seektok.len, seektok.type);
-            fflush(stdout);
-
             if (tok.comm == TOK_EOL) continue; // an empty line
-
             if (tok.comm == OSC_COM) {
                 ctok = tok;
                 l[0] = '\0';
@@ -472,12 +446,11 @@ int main (int argc, char ** argv) {
 
         }
     }
-        
 
-    //print script..
+/***print script ***/
     if (printscript || DEBUG)  printScript();  
 
-    //run script
+/***run script ***/
     debprintf("--------------------\n");
     debprintf("Now run the script..\n");
     if (LineArray == NULL) debputs("There is none..");
