@@ -9,6 +9,7 @@
 void debputs(char * s) {
     if (!DEBUG) return;
     setcolor(DEBUG_COLOR);
+    setcolor(BOLD);
     puts(s);
     setcolor(NOCOLOR);
 }
@@ -18,6 +19,7 @@ void debprintf(char * fs, ...) {
     va_list argumente;
     va_start(argumente, fs);
     setcolor(DEBUG_COLOR);
+    setcolor(BOLD);
     vprintf(fs, argumente);
     setcolor(NOCOLOR);
     va_end(argumente);

@@ -52,7 +52,7 @@ void printhelp() {
     puts("Example: If you define ':= -o' in the config file, you can type '/foo' to send an");
     puts("osc message addressed to /foo.");
     puts("A sample 'toc.config' should come with this program. May be you have to move it to the binary folder");
-    puts("if I am complainig about a missing file.");
+    puts("if I am complainig about a missing file. Normaly that should happen with 'make install'.");
     puts("");
     puts("Examples");
     puts("--------");
@@ -63,5 +63,5 @@ void printhelp() {
     puts("                         .. will echo a message on the screen and send an OSC message");
     puts("toc -out stdout test 1 2 3 | xxd  .. will print the osc message in hex digits but not send it.");
     puts(""); 
-    puts("Coded by Guistlerei"); 
+    puts("Coded by Guistlerei");
 } 

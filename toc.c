@@ -171,28 +171,42 @@ void  applyAliaseNonRepeated (char * result, char * line) {
     struct alias_t * a;
     char * work = line;
     result[0] = '\0';
-    prepBlobIteration(AliasArray);
     char * resptr = result;
-    while ((a = getNextBlob(AliasArray)) != NULL)  {
-        char * s;
-        while ((s = strstr(work, a->s)) != NULL) {
-            debprintf("%s found, at %s, pos %d\n", a->s,s ,s-work);
-            strncpy(resptr, work, s - work); // first part
-            strcpy(resptr + (s-work), a->r); // replacement
-    //printf("strlen of resptr is now %d \n", strlen(resptr));
-    //printf("workpos %d, s.work %d\n", work-line, s-work);
-    //printf("%d zwischen %s strlen(a->r)%d s-work %d\n",resptr-result, resptr, strlen(a->r), s-work);
-            //resptr += strlen(a->r) + 2;
-            resptr = resptr + (s - work) + strlen(a->r) + 0;
-    //printf("%d zwischen2 %s\n", resptr-result,resptr);
-            work = s + strlen(a->s);
+
+    char * fp; int fpos, fpos_min;
+    struct alias_t * a_min;
+    bool done = false;
+
+    while(!done) {
+        done = true;
+        fpos_min = 10000;    
+        prepBlobIteration(AliasArray);
+        while ((a = getNextBlob(AliasArray)) != NULL)  {
+            fp = strstr(work, a->s);
+            if (fp != NULL) {
+                //debprintf("found %s in %s", a->s, work);
+                fpos = fp-work;
+                if (fpos < fpos_min) {
+                    a_min = a; fpos_min = fpos; 
+                    //debprintf("Its the earliest");
+                }
+                //debputs("");
+                done = false;
+            } 
+        } 
+        if (!done) {
+            debprintf("%s found, in %s, at %d\n", a_min->s, work ,fpos_min);
+            //at least one match
+            strncpy(resptr, work, fpos_min);
+            strcpy(resptr + fpos_min, a_min->r);
+            resptr = resptr + fpos_min + strlen(a_min->r);
+            work = work + fpos_min +strlen(a_min->s);
+            //printf("after the replacment %s\n", result);
         }
-
     } 
-
     strcat(result, work);
     debprintf("After: applyAliaseNonRepeated %s\n", result);
-//exit(0);
+    return;
 }
 
 struct line_t {
@@ -229,19 +243,35 @@ void addconfigline(char * line) {
     appendBlob(&ConfigFile, newline);
 }
 
-void makeConfigPath(char * configfile) {
+void makeConfigPath(char * configfile, char * argv0) {
+    configfile[0] = '\0';
+    const char confname[] = "toc.config";
+
+    if (*argv0 == '.') {
+        //invoked with a leading dot: './toc'
+        if (access(confname, R_OK) != 1) {
+            //file exists in the current directory.. use this.
+            strcpy(configfile, confname);
+            debprintf("Config file is: %s\n", configfile); 
+            return;
+        }
+    }
+
     //find the path of the config file by
     // using the system which tool
     FILE *which;
     which = popen ("which toc", "r");
     fgets (configfile, 99, which); 
-    pclose(which);
-
-    //ok got the path and filename of the binary .. now removing the last \n    
-    removeTrailingNewlineChars(configfile);
-    //and adding .config
-    strcat(configfile, ".config");
-    debprintf("Config file is: %s\n", configfile); 
+    int exitstatus = WEXITSTATUS(pclose(which));
+    if (exitstatus == 0) {
+        //ok got the path and filename of the binary .. now removing the last \n    
+        removeTrailingNewlineChars(configfile);
+        //and removing the execname 'toc'
+        char * lastslash = strrchr(configfile, '/');
+        *(lastslash+1) = '\0';
+        strcat(configfile, confname);
+        debprintf("Config file is: %s\n", configfile); 
+    } 
 }
 
 pthread_t th;
@@ -318,7 +348,7 @@ char * strchrnul (char * str, int c) {
 
 int main (int argc, char ** argv) {
     char configfile[100] = "";
-    makeConfigPath(configfile);
+    makeConfigPath(configfile, argv[0]);
 
 /***evaluating command line ***/
     //evaluating commandline arguments.. there are some special commands like
@@ -350,25 +380,30 @@ int main (int argc, char ** argv) {
     };
 
 /***dealing with the config file ***/
+    debputs("Processing configfile");
     struct alias_t * EMP_AL = NULL;
     int filesize;
     char * buf;
     if ((filesize = loadfile(configfile, &buf)) == -1) 
         puts("The config file does not exist. Please refer to 'toc -?' if you dont know what I am writing about..");
     else {
-        debputs("Processing configfile");
         char * nl;
         nl = buf-1;
         char * ptr;
+        // this rely on 
+        //  \n termination of every line
+        //  \0 termination of the whole buffer
         while ((ptr = nl+1), *ptr != '\0') {
             //search for end of line and terminate it..
             nl = strchr(ptr, '\n'); *nl = '\0'; 
+            if (ptr[0] == '\0') continue;
             if (ptr[0] == '/' && ptr[1] == '/') continue;
             if (ptr[0] == '#') continue;
-            if (ptr[0] == '\n') continue;
-            char result[1000];
+            //printf("firstchar >%c< %i\n", *ptr, *ptr);
+            char result[2000];
             removeTrailingNewlineChars(ptr);
-            applyAliase(result, ptr); 
+            //applyAliase(result, ptr); 
+            applyAliaseNonRepeated(result, ptr);
             char * ap;
             if ((ap = strstr(result, ":= ")) != NULL) {
                 //removeTrailingSpaceChars(result);
@@ -385,16 +420,17 @@ int main (int argc, char ** argv) {
 
     if (printaliastable) printAliasTable();
 
+/***dealing with the command line ***/
     debprintf("Processing commandline: %s\n", commandline);
-    char result[200];
+    char result[2000];
     applyAliaseNonRepeated(result, commandline);
     if (EMP_AL != NULL) searchAndReplaceEmptyToken(result, EMP_AL->r);
     addconfigline(result);
     debputs(" ** Commandline has been successfully processed. ** ");
 
-    debputs("Parsing.. ");
 
 /***parsing ***/
+    debputs("Parsing.. ");
     char * currentline = NULL;
     prepBlobIteration(ConfigFile);
     while ((currentline = getconfigline()) != NULL) {
@@ -493,6 +529,8 @@ int main (int argc, char ** argv) {
         removeBlobArray(LineArray);
     }
 
+/***wait for listen thread to terminate ***/
+// usualy that wont happen.. it waits till you terminate the program
     if (listen) pthread_join(th , NULL);
 }
 
